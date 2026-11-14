@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Mizu</title>
+    <link rel="stylesheet" href="css/popup.css">
+  </head>
+  <body>
+    <div class="popup-wallpaper" id="popup-wallpaper" data-preset="dawn" aria-hidden="true"></div>
+    <div class="popup-veil" aria-hidden="true"></div>
+
+    <main class="shell">
+      <header class="header">
+        <div class="brand">
+          <img src="assets/icon-128.png" alt="">
+          <div>
+            <strong>Mizu</strong>
+            <span>收藏当前页面</span>
+          </div>
+        </div>
+        <button class="icon-button" id="open-settings" type="button" aria-label="打开设置" title="设置">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 7h9M17 7h3M4 17h3M11 17h9"></path>
+            <circle cx="15" cy="7" r="2"></circle>
+            <circle cx="9" cy="17" r="2"></circle>
+          </svg>
+        </button>
+      </header>
+
+      <section class="page-card" id="page-card" aria-label="当前页面">
+        <span class="page-icon" id="page-icon">
+          <span class="page-monogram" id="page-monogram">·</span>
+        </span>
+        <div class="page-details">
+          <input
+            class="page-title"
+            id="page-title"
+            type="text"
+            value="正在读取当前页面…"
+            maxlength="36"
+            aria-label="收藏名称"
+            autocomplete="off"
+            spellcheck="false"
+            disabled
+          >
+          <span class="page-host" id="page-host">请稍候</span>
+        </div>
+      </section>
+
+      <button class="add-button is-loading" id="add-button" type="button" disabled>
+        <svg class="add-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path class="plus-path" d="M12 5v14M5 12h14"></path>
+          <path class="check-path" d="m5.5 12.5 4.2 4.2L18.8 7.5"></path>
+        </svg>
+        <span id="add-label">读取中…</span>
+      </button>
+
+      <p class="feedback" id="feedback" role="status" aria-live="polite">名称可修改，地址会自动使用当前页面</p>
+
+      <footer class="footer">
+        <button class="text-button" id="open-start" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m5 11 7-6 7 6v7.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 18.5Z"></path>
+            <path d="M9.5 20v-5h5v5"></path>
+          </svg>
+          打开起始页
+        </button>
+        <span class="local-note">仅保存在本机</span>
+      </footer>
+    </main>
+
+    <script type="module" src="js/popup.js"></script>
+  </body>
+</html>

@@ -1,0 +1,414 @@
+:root {
+  color-scheme: dark;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-synthesis: none;
+  --glass: rgba(255, 255, 255, .08);
+  --glass-hover: rgba(255, 255, 255, .14);
+  --glass-border: rgba(255, 255, 255, .18);
+  --glass-highlight: rgba(255, 255, 255, .26);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 300px;
+  min-height: 100%;
+  margin: 0;
+}
+
+html {
+  background: #101b1d;
+}
+
+body {
+  position: relative;
+  padding: 16px;
+  overflow: hidden;
+  color: #f7f5ef;
+  background: #111b1d;
+  -webkit-font-smoothing: antialiased;
+}
+
+.popup-wallpaper,
+.popup-veil {
+  position: fixed;
+  inset: -30px;
+  pointer-events: none;
+}
+
+.popup-wallpaper {
+  z-index: 0;
+  background-color: #1c2d2e;
+  background-position: center;
+  background-size: cover;
+  filter: blur(28px) saturate(145%) brightness(.49);
+  transform: scale(1.09);
+}
+
+.popup-wallpaper[data-preset="dawn"] {
+  background-image: url("../assets/wallpaper-dawn.svg");
+}
+
+.popup-wallpaper[data-preset="mist"] {
+  background-image:
+    radial-gradient(ellipse at 67% 23%, rgba(255, 231, 196, .75), transparent 29%),
+    linear-gradient(160deg, #728b8d, #bfc8ba 48%, #718479);
+}
+
+.popup-wallpaper[data-preset="dusk"] {
+  background-image:
+    radial-gradient(ellipse at 78% 31%, rgba(236, 174, 136, .78), transparent 29%),
+    linear-gradient(152deg, #39475b, #8a6e75 55%, #444a44);
+}
+
+.popup-wallpaper[data-preset="paper"] {
+  background-image: linear-gradient(145deg, #f4efe5, #d9d8cb 58%, #bfc2b3);
+}
+
+.popup-veil {
+  z-index: 1;
+  inset: 0;
+  background:
+    radial-gradient(circle at 86% 0%, rgba(255, 235, 202, .09), transparent 43%),
+    linear-gradient(148deg, rgba(9, 17, 17, .46), rgba(7, 13, 14, .76));
+}
+
+.shell {
+  position: relative;
+  z-index: 2;
+}
+
+button {
+  font: inherit;
+}
+
+button:focus-visible {
+  outline: 2px solid rgba(244, 225, 196, .88);
+  outline-offset: 2px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand img {
+  width: 37px;
+  height: 37px;
+  border-radius: 10px;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .2);
+}
+
+.brand strong {
+  display: block;
+  font-size: 14.5px;
+  font-weight: 620;
+  letter-spacing: -.015em;
+}
+
+.brand span {
+  display: block;
+  margin-top: 1px;
+  color: rgba(247, 245, 239, .5);
+  font-size: 10.5px;
+  letter-spacing: .01em;
+}
+
+.icon-button {
+  position: relative;
+  display: grid;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--glass-border);
+  border-radius: 50%;
+  color: rgba(247, 245, 239, .55);
+  background: var(--glass);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
+  cursor: pointer;
+  place-items: center;
+  -webkit-backdrop-filter: blur(16px) saturate(125%);
+  backdrop-filter: blur(16px) saturate(125%);
+  transition: color .15s ease, background .15s ease, transform .15s ease;
+}
+
+.icon-button:hover {
+  color: rgba(255, 255, 255, .92);
+  background: var(--glass-hover);
+  transform: rotate(3deg);
+}
+
+.icon-button:active {
+  transform: scale(.94);
+}
+
+.icon-button svg {
+  position: relative;
+  z-index: 1;
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 1.5;
+}
+
+.page-card {
+  position: relative;
+  display: flex;
+  min-height: 64px;
+  align-items: center;
+  gap: 11px;
+  margin-top: 14px;
+  padding: 10px;
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
+  background: var(--glass);
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    0 8px 24px rgba(0, 0, 0, .07);
+  -webkit-backdrop-filter: blur(22px) saturate(125%);
+  backdrop-filter: blur(22px) saturate(125%);
+  transition: border-color .18s ease, background .18s ease;
+}
+
+.page-card.is-saved {
+  border-color: rgba(182, 222, 192, .26);
+  background: rgba(112, 162, 125, .12);
+}
+
+.page-card.is-error {
+  border-color: rgba(255, 180, 168, .14);
+}
+
+.page-icon {
+  display: grid;
+  flex: 0 0 auto;
+  width: 42px;
+  height: 42px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 11px;
+  color: #fff;
+  background: #fff;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .14);
+  font-size: 19px;
+  font-weight: 520;
+  text-transform: uppercase;
+  place-items: center;
+}
+
+.page-icon.has-image {
+  background: #fff;
+}
+
+.page-icon img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: inherit;
+}
+
+.page-details {
+  min-width: 0;
+  flex: 1;
+}
+
+.page-title {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  margin: 0 0 0 -4px;
+  padding: 2px 4px;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  outline: 0;
+  color: rgba(255, 255, 255, .91);
+  background: transparent;
+  font-size: 12.5px;
+  font-weight: 540;
+  letter-spacing: -.005em;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: border-color .16s ease, background .16s ease, box-shadow .16s ease;
+}
+
+.page-title:not(:disabled):hover {
+  background: rgba(255, 255, 255, .055);
+}
+
+.page-title:not(:disabled):focus {
+  border-color: rgba(244, 225, 196, .32);
+  background: rgba(255, 255, 255, .075);
+  box-shadow: 0 0 0 2px rgba(244, 225, 196, .055);
+}
+
+.page-title:disabled {
+  opacity: 1;
+  cursor: default;
+  -webkit-text-fill-color: rgba(255, 255, 255, .91);
+}
+
+.page-host {
+  display: block;
+  margin-top: 4px;
+  overflow: hidden;
+  color: rgba(255, 255, 255, .36);
+  font-size: 10px;
+  letter-spacing: .01em;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.add-button {
+  display: flex;
+  width: 100%;
+  height: 39px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin-top: 11px;
+  border: 1px solid rgba(255, 255, 255, .22);
+  border-radius: 10px;
+  color: #172324;
+  background: rgba(245, 241, 232, .9);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .62),
+    0 6px 18px rgba(0, 0, 0, .1);
+  font-size: 11.5px;
+  font-weight: 590;
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(18px) saturate(120%);
+  backdrop-filter: blur(18px) saturate(120%);
+  transition: background .16s ease, color .15s ease, border-color .15s ease, transform .15s ease;
+}
+
+.add-button:hover:not(:disabled) {
+  background: rgba(255, 252, 246, .97);
+}
+
+.add-button:active:not(:disabled) {
+  transform: scale(.98);
+}
+
+.add-button:disabled {
+  cursor: default;
+}
+
+.add-button.is-loading,
+.add-button.is-error {
+  color: rgba(247, 245, 239, .37);
+  background: rgba(255, 255, 255, .065);
+  border-color: rgba(255, 255, 255, .08);
+  box-shadow: none;
+}
+
+.add-button.is-saved {
+  color: rgba(216, 239, 221, .84);
+  border-color: rgba(159, 202, 169, .17);
+  background: rgba(123, 169, 135, .14);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .1);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+
+.add-icon {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+}
+
+.check-path {
+  display: none;
+}
+
+.is-saved .plus-path {
+  display: none;
+}
+
+.is-saved .check-path {
+  display: block;
+}
+
+.feedback {
+  min-height: 16px;
+  margin: 8px 2px 0;
+  color: rgba(247, 245, 239, .32);
+  font-size: 10px;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.feedback.is-error {
+  color: rgba(255, 180, 168, .7);
+}
+
+.feedback.is-saved {
+  color: rgba(174, 211, 181, .55);
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, .065);
+}
+
+.text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  color: rgba(247, 245, 239, .5);
+  background: transparent;
+  font-size: 10.5px;
+  cursor: pointer;
+  transition: color .15s ease;
+}
+
+.text-button:hover {
+  color: rgba(255, 255, 255, .88);
+}
+
+.text-button svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.35;
+}
+
+.local-note {
+  color: rgba(247, 245, 239, .22);
+  font-size: 9.5px;
+}
+
+[hidden] {
+  display: none !important;
+}

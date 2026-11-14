@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title>新标签页</title>
+    <link rel="stylesheet" href="css/styles.css">
+  </head>
+  <body>
+    <div class="wallpaper" id="wallpaper" data-preset="dawn" aria-hidden="true"></div>
+    <div class="veil" id="veil" aria-hidden="true"></div>
+    <div class="ambient-light" aria-hidden="true"></div>
+
+    <main class="stage">
+      <header class="topbar">
+        <div class="search-cluster">
+          <form class="search-form" id="search-form" role="search">
+            <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="11" cy="11" r="6.75"></circle>
+              <path d="m16 16 4.2 4.2"></path>
+            </svg>
+            <input
+              id="search-input"
+              name="q"
+              type="text"
+              placeholder="搜索或输入网站名称"
+              aria-label="搜索或输入网站名称"
+              autocomplete="off"
+              autocapitalize="off"
+              spellcheck="false"
+              enterkeyhint="go"
+            >
+            <span class="search-shortcut" id="search-shortcut" aria-hidden="true">⌘ K</span>
+          </form>
+
+          <button
+            class="icon-button history-button"
+            id="history-button"
+            type="button"
+            aria-label="打开历史记录"
+            aria-controls="history-layer"
+            aria-expanded="false"
+            title="历史记录"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4.7 8.2A8 8 0 1 1 4 14"></path>
+              <path d="M4.7 3.8v4.4h4.4"></path>
+              <path d="M12 7.8V12l2.8 1.8"></path>
+            </svg>
+          </button>
+        </div>
+
+        <button class="icon-button settings-button" id="settings-button" type="button" aria-label="打开设置" title="设置">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 7h9M17 7h3M4 17h3M11 17h9"></path>
+            <circle cx="15" cy="7" r="2"></circle>
+            <circle cx="9" cy="17" r="2"></circle>
+          </svg>
+        </button>
+      </header>
+
+      <section class="collection" aria-label="常用网站">
+        <div class="collection-header">
+          <p class="collection-hint" id="collection-hint" aria-live="polite"></p>
+          <button class="edit-button" id="edit-button" type="button">编辑</button>
+        </div>
+        <div class="favorites-grid" id="favorites-grid"></div>
+      </section>
+    </main>
+
+    <div class="history-layer" id="history-layer" hidden>
+      <div class="history-backdrop" id="history-backdrop"></div>
+      <section
+        class="history-panel"
+        id="history-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="history-title"
+      >
+        <header class="history-header">
+          <div>
+            <p class="eyebrow">Mizu</p>
+            <div class="history-title-row">
+              <h2 id="history-title">历史记录</h2>
+              <span class="history-count" id="history-count" role="status"></span>
+            </div>
+          </div>
+          <button class="dialog-close" id="history-close" type="button" aria-label="关闭历史记录">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m6 6 12 12M18 6 6 18"></path>
+            </svg>
+          </button>
+        </header>
+
+        <div class="history-search-wrap">
+          <div class="history-search">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="11" cy="11" r="6.75"></circle>
+              <path d="m16 16 4.2 4.2"></path>
+            </svg>
+            <input
+              id="history-search"
+              type="search"
+              placeholder="搜索标题或网址"
+              aria-label="搜索浏览历史"
+              autocomplete="off"
+              autocapitalize="off"
+              spellcheck="false"
+            >
+            <button class="history-search-clear" id="history-search-clear" type="button" aria-label="清空搜索" hidden>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m7 7 10 10M17 7 7 17"></path>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="history-list" id="history-list" aria-label="浏览历史" aria-busy="false"></div>
+      </section>
+    </div>
+
+    <div class="context-menu" id="home-context-menu" role="menu" hidden>
+      <button class="context-menu-item" id="context-edit-home" type="button" role="menuitem">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17v3Z"></path>
+          <path d="m13.5 7.5 3 3"></path>
+        </svg>
+        <span>编辑主页</span>
+      </button>
+      <button class="context-menu-item" id="context-edit-site" type="button" role="menuitem" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 20h9"></path>
+          <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"></path>
+        </svg>
+        <span>编辑此网站</span>
+      </button>
+      <button class="context-menu-item" id="context-finish-edit" type="button" role="menuitem" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="m5 12 4 4L19 6"></path>
+        </svg>
+        <span>完成编辑</span>
+      </button>
+    </div>
+
+    <dialog class="glass-dialog link-dialog" id="link-dialog">
+      <form id="link-form" novalidate>
+        <header class="dialog-header">
+          <div>
+            <p class="eyebrow">收藏</p>
+            <h2 id="link-dialog-title">添加网站</h2>
+          </div>
+          <button class="dialog-close" id="link-dialog-close" type="button" aria-label="关闭">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m6 6 12 12M18 6 6 18"></path>
+            </svg>
+          </button>
+        </header>
+
+        <div class="link-preview" aria-hidden="true">
+          <span class="link-preview-icon" id="link-preview-icon"></span>
+          <span class="link-preview-name" id="link-preview-name">新网站</span>
+        </div>
+
+        <div class="icon-mode-switch" role="group" aria-label="图标样式">
+          <button
+            class="icon-mode-option is-active"
+            type="button"
+            data-icon-mode="online"
+            aria-pressed="true"
+            title="读取网站图标"
+          >
+            在线图标
+          </button>
+          <button
+            class="icon-mode-option"
+            type="button"
+            data-icon-mode="text"
+            aria-pressed="false"
+            title="中文显示 1 个字，英文显示 2 个字母"
+          >
+            文字图标
+          </button>
+        </div>
+
+        <label class="field icon-text-field" id="icon-text-field" hidden>
+          <span>图标文字</span>
+          <input
+            id="link-icon-text"
+            type="text"
+            maxlength="36"
+            placeholder="例如：鱼，留空则自动使用名称"
+            autocomplete="off"
+          >
+        </label>
+
+        <label class="field">
+          <span>名称</span>
+          <input id="link-name" name="name" type="text" maxlength="36" placeholder="例如：GitHub" required>
+        </label>
+        <label class="field">
+          <span>网址</span>
+          <input
+            id="link-url"
+            name="url"
+            type="text"
+            inputmode="url"
+            maxlength="2048"
+            placeholder="github.com"
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck="false"
+            required
+          >
+        </label>
+        <p class="form-error" id="form-error" role="alert" hidden></p>
+
+        <footer class="dialog-actions">
+          <button class="secondary-button" id="link-cancel" type="button">取消</button>
+          <button class="primary-button" type="submit">保存</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <div class="sheet-layer" id="settings-layer" hidden>
+      <div class="sheet-backdrop" id="settings-backdrop"></div>
+      <aside class="settings-sheet" id="settings-sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <header class="settings-header">
+          <div>
+            <p class="eyebrow">Mizu</p>
+            <h2 id="settings-title">设置</h2>
+          </div>
+          <button class="dialog-close" id="settings-close" type="button" aria-label="关闭设置">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m6 6 12 12M18 6 6 18"></path>
+            </svg>
+          </button>
+        </header>
+
+        <div class="settings-scroll">
+          <section class="settings-section" aria-labelledby="appearance-title">
+            <div class="section-heading">
+              <h3 id="appearance-title">背景</h3>
+              <span class="section-note">本地图片不会上传</span>
+            </div>
+            <div class="wallpaper-options" id="wallpaper-options"></div>
+            <input id="wallpaper-file" type="file" accept="image/*" hidden>
+            <button class="upload-button" id="wallpaper-upload" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V14"></path>
+              </svg>
+              <span class="upload-label">选择电脑中的图片</span>
+            </button>
+
+            <div class="range-field">
+              <div class="range-label">
+                <label for="overlay-range">柔和遮罩</label>
+                <output id="overlay-output" for="overlay-range">18%</output>
+              </div>
+              <input id="overlay-range" type="range" min="0" max="60" step="2" value="18">
+            </div>
+            <div class="range-field">
+              <div class="range-label">
+                <label for="blur-range">背景模糊</label>
+                <output id="blur-output" for="blur-range">0 px</output>
+              </div>
+              <input id="blur-range" type="range" min="0" max="24" step="1" value="0">
+            </div>
+          </section>
+
+          <section class="settings-section" aria-labelledby="search-title">
+            <div class="section-heading">
+              <h3 id="search-title">搜索</h3>
+            </div>
+            <label class="select-field">
+              <span>默认搜索引擎</span>
+              <select id="engine-select">
+                <option value="google">Google</option>
+                <option value="bing">Bing</option>
+                <option value="baidu">百度</option>
+                <option value="duckduckgo">DuckDuckGo</option>
+              </select>
+            </label>
+          </section>
+
+          <section class="settings-section" aria-labelledby="display-title">
+            <div class="section-heading">
+              <h3 id="display-title">显示</h3>
+            </div>
+            <label class="switch-row">
+              <span>
+                <strong>显示网站名称</strong>
+                <small>关闭后只显示图标</small>
+              </span>
+              <input id="labels-toggle" type="checkbox" checked>
+              <i class="switch" aria-hidden="true"></i>
+            </label>
+          </section>
+
+          <section class="settings-section" aria-labelledby="layout-title">
+            <div class="section-heading">
+              <h3 id="layout-title">布局</h3>
+              <span class="section-note">实时生效</span>
+            </div>
+            <div class="range-field">
+              <div class="range-label">
+                <label for="icon-size-range">图标大小</label>
+                <output id="icon-size-output" for="icon-size-range">72 px</output>
+              </div>
+              <input id="icon-size-range" type="range" min="48" max="88" step="2" value="72">
+            </div>
+            <div class="range-field">
+              <div class="range-label">
+                <label for="icon-gap-range">图标间隔</label>
+                <output id="icon-gap-output" for="icon-gap-range">16 px</output>
+              </div>
+              <input id="icon-gap-range" type="range" min="4" max="40" step="2" value="16">
+            </div>
+            <div class="range-field">
+              <div class="range-label">
+                <label for="columns-range">每行数量</label>
+                <output id="columns-output" for="columns-range">12 个</output>
+              </div>
+              <input id="columns-range" type="range" min="4" max="16" step="1" value="12">
+            </div>
+          </section>
+
+          <section class="settings-section settings-section--last" aria-labelledby="data-title">
+            <div class="section-heading">
+              <h3 id="data-title">数据</h3>
+            </div>
+            <p class="settings-copy">收藏和设置只保存在这台电脑的浏览器里，不会发送到任何服务器。恢复默认样式不会删除收藏。</p>
+            <button class="quiet-button" id="reset-button" type="button">恢复默认样式</button>
+          </section>
+        </div>
+      </aside>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden>
+      <span id="toast-message"></span>
+      <button id="toast-action" type="button" hidden>撤销</button>
+    </div>
+
+    <script type="module" src="js/app.js"></script>
+  </body>
+</html>
