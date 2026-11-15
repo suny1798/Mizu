@@ -49,7 +49,7 @@ body {
 }
 
 .popup-wallpaper[data-preset="dawn"] {
-  background-image: url("../assets/wallpaper-dawn.svg");
+  background-image: url("../assets/wallpaper-default.jpg");
 }
 
 .popup-wallpaper[data-preset="mist"] {

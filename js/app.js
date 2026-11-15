@@ -1,15 +1,19 @@
 import {
+  BACKUP_MAX_BYTES,
   DEFAULT_SETTINGS,
   ENGINES,
   PRESETS,
   STORAGE_KEY,
   clamp,
+  createBackup,
   createDefaultState,
   looksLikeAddress,
   makeId,
+  mergeStates,
   normalizeIconText,
   normalizeState,
-  normalizeUrl
+  normalizeUrl,
+  parseBackup
 } from "./data.js";
 
 const MONOGRAM_COLORS = [
@@ -68,6 +72,21 @@ const dom = {
   iconTextField: document.querySelector("#icon-text-field"),
   linkIconText: document.querySelector("#link-icon-text"),
   formError: document.querySelector("#form-error"),
+  importDialog: document.querySelector("#import-dialog"),
+  importForm: document.querySelector("#import-form"),
+  importDialogClose: document.querySelector("#import-dialog-close"),
+  importCancel: document.querySelector("#import-cancel"),
+  importConfirm: document.querySelector("#import-confirm"),
+  importFile: document.querySelector("#import-file"),
+  importFileName: document.querySelector("#import-file-name"),
+  importSummaryMeta: document.querySelector("#import-summary-meta"),
+  importStat: document.querySelector("#import-stat"),
+  importError: document.querySelector("#import-error"),
+  importModeInputs: [
+    ...document.querySelectorAll('input[name="import-mode"]')
+  ],
+  exportBackup: document.querySelector("#export-backup"),
+  importBackup: document.querySelector("#import-backup"),
   settingsLayer: document.querySelector("#settings-layer"),
   settingsSheet: document.querySelector("#settings-sheet"),
   settingsBackdrop: document.querySelector("#settings-backdrop"),
@@ -112,7 +131,8 @@ let historySearchTimer = 0;
 let historyRequest = 0;
 let toastTimer = 0;
 let saveTimer = 0;
-let pendingRemoval = null;
+let pendingBackup = null;
+let importIsSaving = false;
 let resetArmed = false;
 let resetTimer = 0;
 let lastFocusedElement = null;
@@ -732,16 +752,15 @@ function removeLink(id) {
   const index = state.links.findIndex((link) => link.id === id);
   if (index < 0) return;
   const [link] = state.links.splice(index, 1);
-  pendingRemoval = { link, index };
+  const removed = { link, index };
   saveNow();
   renderFavorites();
   showToast(`已移除「${link.title}」`, {
     actionLabel: "撤销",
     duration: 5000,
     action: () => {
-      if (!pendingRemoval) return;
-      state.links.splice(pendingRemoval.index, 0, pendingRemoval.link);
-      pendingRemoval = null;
+      if (state.links.some((item) => item.id === removed.link.id)) return;
+      state.links.splice(removed.index, 0, removed.link);
       saveNow();
       renderFavorites();
       hideToast();
@@ -755,7 +774,18 @@ function showToast(message, options = {}) {
   dom.toastMessage.textContent = message;
   dom.toastAction.hidden = !options.actionLabel;
   dom.toastAction.textContent = options.actionLabel || "";
-  dom.toastAction.onclick = options.action || null;
+  dom.toastAction.disabled = false;
+  dom.toastAction.onclick = typeof options.action === "function"
+    ? async () => {
+        if (dom.toastAction.disabled) return;
+        dom.toastAction.disabled = true;
+        try {
+          await options.action();
+        } finally {
+          dom.toastAction.disabled = false;
+        }
+      }
+    : null;
   toastTimer = window.setTimeout(
     hideToast,
     Number(options.duration) || 3200
@@ -766,8 +796,8 @@ function hideToast() {
   window.clearTimeout(toastTimer);
   dom.toast.hidden = true;
   dom.toastAction.hidden = true;
+  dom.toastAction.disabled = false;
   dom.toastAction.onclick = null;
-  pendingRemoval = null;
 }
 
 function searchOrOpen(value) {
@@ -827,7 +857,7 @@ function buildWallpaperOptions() {
       state.settings.wallpaper = {
         type: "preset",
         value: preset.id,
-        tone: preset.id === "paper" ? "light" : "dark"
+        tone: preset.tone
       };
       applyUiState();
       saveNow();
@@ -1113,6 +1143,246 @@ async function handleWallpaperFile(file) {
   } finally {
     dom.wallpaperFile.value = "";
   }
+}
+
+function backupFileName(date = new Date()) {
+  const pad = (value) => String(value).padStart(2, "0");
+  return [
+    "mizu-backup-",
+    date.getFullYear(),
+    pad(date.getMonth() + 1),
+    pad(date.getDate()),
+    "-",
+    pad(date.getHours()),
+    pad(date.getMinutes()),
+    ".json"
+  ].join("");
+}
+
+function handleExportBackup() {
+  let objectUrl = "";
+  try {
+    const appVersion = isExtension
+      ? chrome.runtime.getManifest().version
+      : "web";
+    const backup = createBackup(state, appVersion);
+    const blob = new Blob(
+      [JSON.stringify(backup, null, 2)],
+      { type: "application/json" }
+    );
+    objectUrl = URL.createObjectURL(blob);
+
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = backupFileName();
+    link.hidden = true;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    showToast("备份已导出");
+  } catch (error) {
+    console.error("Mizu could not export the backup.", error);
+    showToast("无法导出备份");
+  } finally {
+    if (objectUrl) {
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    }
+  }
+}
+
+function formatBackupDate(value) {
+  if (!value) return "导出时间未知";
+  try {
+    return new Intl.DateTimeFormat("zh-CN", {
+      dateStyle: "medium",
+      timeStyle: "short"
+    }).format(new Date(value));
+  } catch {
+    return "导出时间未知";
+  }
+}
+
+function backupWallpaperLabel(backupState) {
+  const { wallpaper } = backupState.settings;
+  if (wallpaper.type === "image") return "自定义壁纸";
+  const preset = PRESETS.find((item) => item.id === wallpaper.value);
+  return preset ? `内置壁纸 · ${preset.name}` : "内置壁纸";
+}
+
+function currentImportMode() {
+  return dom.importModeInputs.find((input) => input.checked)?.value === "merge"
+    ? "merge"
+    : "replace";
+}
+
+function newLinksInBackup(backupState) {
+  const urls = new Set(state.links.map((link) => link.url));
+  let count = 0;
+  for (const link of backupState.links) {
+    if (urls.has(link.url)) continue;
+    urls.add(link.url);
+    count += 1;
+  }
+  return count;
+}
+
+function duplicateLinksInBackup(backupState) {
+  const urls = new Set(state.links.map((link) => link.url));
+  const duplicates = new Set();
+  for (const link of backupState.links) {
+    if (urls.has(link.url)) duplicates.add(link.url);
+  }
+  return duplicates.size;
+}
+
+function updateImportDialogCopy() {
+  if (!pendingBackup) return;
+  const mode = currentImportMode();
+  const incomingCount = pendingBackup.state.links.length;
+  const newCount = newLinksInBackup(pendingBackup.state);
+  const duplicateCount = duplicateLinksInBackup(pendingBackup.state);
+
+  if (mode === "merge") {
+    dom.importStat.textContent =
+      `保留当前 ${state.links.length} 个收藏，新增 ${newCount} 个；` +
+      `${duplicateCount ? `${duplicateCount} 个重复网址保留本机版本。` : "没有重复网址。"}` +
+      `壁纸和全部设置采用备份。`;
+    dom.importConfirm.textContent = "合并并导入";
+  } else {
+    dom.importStat.textContent =
+      `备份中有 ${incomingCount} 个收藏，将替换当前 ${state.links.length} 个收藏，` +
+      `并应用${backupWallpaperLabel(pendingBackup.state)}和全部设置。`;
+    dom.importConfirm.textContent = "替换并导入";
+  }
+}
+
+function openImportDialog(fileName, backup) {
+  pendingBackup = backup;
+  dom.importFileName.textContent = fileName || "Mizu 备份";
+  dom.importSummaryMeta.textContent =
+    `${formatBackupDate(backup.exportedAt)} · ` +
+    `Mizu ${backup.appVersion || "版本未知"} · ${backupWallpaperLabel(backup.state)}`;
+  dom.importError.hidden = true;
+  dom.importError.textContent = "";
+  const replaceInput = dom.importModeInputs.find(
+    (input) => input.value === "replace"
+  );
+  if (replaceInput) replaceInput.checked = true;
+  updateImportDialogCopy();
+
+  if (!dom.importDialog.open) dom.importDialog.showModal();
+  requestAnimationFrame(() => replaceInput?.focus());
+}
+
+function closeImportDialog() {
+  pendingBackup = null;
+  dom.importError.hidden = true;
+  dom.importError.textContent = "";
+  dom.importFile.value = "";
+  if (dom.importDialog.open) dom.importDialog.close();
+}
+
+async function handleImportFile(file) {
+  if (!file) return;
+  try {
+    if (file.size > BACKUP_MAX_BYTES) {
+      throw new Error("备份文件超过 16 MB");
+    }
+
+    let raw;
+    try {
+      raw = JSON.parse(await file.text());
+    } catch {
+      throw new Error("备份文件不是有效的 JSON");
+    }
+    const backup = parseBackup(raw);
+    openImportDialog(file.name, backup);
+  } catch (error) {
+    console.warn("Mizu could not read the backup file.", error);
+    showToast(error.message || "无法读取备份文件", { duration: 6000 });
+  } finally {
+    dom.importFile.value = "";
+  }
+}
+
+async function handleImportSubmit(event) {
+  event.preventDefault();
+  if (!pendingBackup || importIsSaving) return;
+
+  const backup = pendingBackup;
+  const mode = currentImportMode();
+  const previousState = state;
+  let nextState;
+
+  try {
+    nextState = mode === "merge"
+      ? mergeStates(state, backup.state)
+      : normalizeState(backup.state);
+  } catch (error) {
+    console.error("Mizu could not prepare the imported backup.", error);
+    dom.importError.textContent = "备份内容无法应用，请检查文件后重试。";
+    dom.importError.hidden = false;
+    return;
+  }
+
+  importIsSaving = true;
+  dom.importConfirm.disabled = true;
+  dom.importCancel.disabled = true;
+  dom.importDialogClose.disabled = true;
+  dom.importError.hidden = true;
+  dom.importError.textContent = "";
+
+  const importedCount = mode === "merge"
+    ? newLinksInBackup(backup.state)
+    : backup.state.links.length;
+  state = nextState;
+  applyUiState();
+  renderFavorites();
+  const saved = await saveNow();
+  if (!saved) {
+    state = previousState;
+    applyUiState();
+    renderFavorites();
+    dom.importError.textContent =
+      "导入失败：浏览器本地存储空间不足。请换用更小的壁纸或减少图标后重试。";
+    dom.importError.hidden = false;
+    importIsSaving = false;
+    dom.importConfirm.disabled = false;
+    dom.importCancel.disabled = false;
+    dom.importDialogClose.disabled = false;
+    return;
+  }
+
+  closeImportDialog();
+  showToast(
+    mode === "merge"
+      ? `已合并备份，新增 ${importedCount} 个收藏`
+      : `已导入备份，共 ${importedCount} 个收藏`,
+    {
+      actionLabel: "撤销",
+      duration: 8000,
+      action: async () => {
+        const importedState = state;
+        state = previousState;
+        applyUiState();
+        renderFavorites();
+        const undone = await saveNow();
+        if (!undone) {
+          state = importedState;
+          applyUiState();
+          renderFavorites();
+          return;
+        }
+        hideToast();
+        showToast("已撤销导入");
+      }
+    }
+  );
+
+  importIsSaving = false;
+  dom.importConfirm.disabled = false;
+  dom.importCancel.disabled = false;
+  dom.importDialogClose.disabled = false;
 }
 
 function openSettings() {
@@ -1508,6 +1778,11 @@ function handleGlobalKeydown(event) {
     (active.matches("input, select, textarea") || active.isContentEditable);
 
   if (event.key === "Escape") {
+    if (dom.importDialog.open) {
+      event.preventDefault();
+      if (!importIsSaving) closeImportDialog();
+      return;
+    }
     if (!dom.contextMenu.hidden) {
       closeHomeContextMenu();
       return;
@@ -1628,6 +1903,29 @@ function bindEvents() {
   dom.linkCancel.addEventListener("click", closeLinkDialog);
   dom.linkDialog.addEventListener("click", (event) => {
     if (event.target === dom.linkDialog) closeLinkDialog();
+  });
+
+  dom.importForm.addEventListener("submit", handleImportSubmit);
+  dom.importDialogClose.addEventListener("click", closeImportDialog);
+  dom.importCancel.addEventListener("click", closeImportDialog);
+  dom.importDialog.addEventListener("click", (event) => {
+    if (event.target === dom.importDialog && !importIsSaving) {
+      closeImportDialog();
+    }
+  });
+  dom.importDialog.addEventListener("close", () => {
+    pendingBackup = null;
+    dom.importError.hidden = true;
+    dom.importError.textContent = "";
+    dom.importFile.value = "";
+  });
+  for (const input of dom.importModeInputs) {
+    input.addEventListener("change", updateImportDialogCopy);
+  }
+  dom.exportBackup.addEventListener("click", handleExportBackup);
+  dom.importBackup.addEventListener("click", () => dom.importFile.click());
+  dom.importFile.addEventListener("change", () => {
+    handleImportFile(dom.importFile.files?.[0]);
   });
 
   dom.linkName.addEventListener("input", updateLinkPreview);

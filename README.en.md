@@ -10,11 +10,20 @@ A clean, customizable new tab extension for Chrome.
 
 [简体中文](README.md) · **English**
 
-[Features](#features) · [Installation](#installation) · [Usage](#usage) · [Privacy](#privacy) · [Contributing](#contributing)
+[Recent updates](#recent-updates) · [Features](#features) · [Appearance settings](#appearance-settings) · [Installation](#installation) · [Usage](#usage) · [Privacy](#privacy) · [Contributing](#contributing)
 
 </div>
 
 ![Mizu start page](css/images/1.png)
+
+## Recent updates
+
+### November 15, 2026 · v0.2.16
+
+- Added JSON backup export and import in settings, covering favorites, icons, wallpapers, order, and all configuration.
+- Imports can replace everything or merge favorites; when merging, existing local entries win for duplicate URLs.
+- A successful import can be undone for 8 seconds; invalid, oversized, or storage-limited imports leave existing data unchanged.
+- Updated the default background to the light bedroom plush wallpaper and switched the interface to its light tone.
 
 ## Features
 
@@ -24,13 +33,11 @@ A clean, customizable new tab extension for Chrome.
 - **Flexible icons** — Website icons or custom text icons, with adjustable size, spacing, and column count.
 - **Search and history** — Google, Bing, Baidu, DuckDuckGo, and browser history search.
 - **Local storage** — Favorites and settings stay in your browser, with changes reflected across open Mizu tabs.
+- **Backup and migration** — Export favorites, icons, wallpapers, and all settings as JSON, then import them on another computer.
 
-<details>
-<summary>View appearance settings</summary>
+## Appearance settings
 
 ![Mizu appearance settings](css/images/2.png)
-
-</details>
 
 ## Installation
 
@@ -58,6 +65,7 @@ Update the source or replace the files in the existing directory, click Mizu's r
 - **Reorder:** Hold an icon for about 0.4 seconds and drag, or drag while in edit mode.
 - **Customize:** Open settings in the top-right corner to adjust the background and icon layout. Resetting the appearance keeps your favorites.
 - **Find a visited page:** Click the history icon beside the search box and search by title or URL.
+- **Move to another computer:** Export a backup in settings on the old computer, transfer the JSON file, then import it on the new computer. Choose whether to replace everything or merge favorites.
 
 Favorites and searches open in a new tab in the current window, keeping the start page open. The extension's current interface is in Simplified Chinese.
 
@@ -70,7 +78,7 @@ Favorites and searches open in a new tab in the current window, keeping the star
 
 ## Privacy
 
-Mizu includes no analytics, ads, or cloud sync. Favorites, settings, and uploaded wallpapers are stored locally. Browser history is queried only when the history panel is opened and is not uploaded.
+Mizu includes no analytics, ads, or cloud sync. Favorites, settings, and uploaded wallpapers are stored locally. Browser history is queried only when the history panel is opened and is not uploaded. JSON backups are created only when requested and remain wherever you choose to save them; they contain favorite URLs, icons, and wallpapers, so store them securely.
 
 Website icons may be requested from their respective sites, and search terms are sent to your selected search engine. See the [privacy and permissions statement](PRIVACY.md) (Chinese) for details.
 

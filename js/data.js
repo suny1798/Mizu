@@ -1,4 +1,10 @@
 export const STORAGE_KEY = ["mizu", "start", "state", "v1"].join(".");
+export const BACKUP_FORMAT = "mizu-backup";
+export const BACKUP_FORMAT_VERSION = 1;
+export const BACKUP_MAX_BYTES = 16 * 1024 * 1024;
+
+const WALLPAPER_DATA_URL_PATTERN =
+  /^data:image\/(?:png|jpe?g|webp|gif|avif);base64,[a-z0-9+/=]+$/i;
 
 export const ENGINES = {
   google: { name: "Google", searchUrl: "https://www.google.com/search?q=" },
@@ -8,10 +14,10 @@ export const ENGINES = {
 };
 
 export const PRESETS = [
-  { id: "dawn", name: "晨光" },
-  { id: "mist", name: "薄雾" },
-  { id: "dusk", name: "暮色" },
-  { id: "paper", name: "纸白" }
+  { id: "dawn", name: "默认", tone: "light" },
+  { id: "mist", name: "薄雾", tone: "dark" },
+  { id: "dusk", name: "暮色", tone: "dark" },
+  { id: "paper", name: "纸白", tone: "light" }
 ];
 
 export const DEFAULT_LINKS = [
@@ -67,7 +73,7 @@ export const DEFAULT_LINKS = [
 
 export const DEFAULT_SETTINGS = {
   engine: "google",
-  wallpaper: { type: "preset", value: "dawn", tone: "dark" },
+  wallpaper: { type: "preset", value: "dawn", tone: "light" },
   overlay: 18,
   blur: 0,
   showLabels: true,
@@ -89,6 +95,90 @@ export function createDefaultState() {
       wallpaper: { ...DEFAULT_SETTINGS.wallpaper }
     }
   };
+}
+
+export function createBackup(state, appVersion) {
+  return {
+    format: BACKUP_FORMAT,
+    formatVersion: BACKUP_FORMAT_VERSION,
+    exportedAt: new Date().toISOString(),
+    appVersion: String(appVersion || ""),
+    state: normalizeState(state)
+  };
+}
+
+export function parseBackup(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("备份文件内容无效");
+  }
+  if (raw.format !== BACKUP_FORMAT) {
+    throw new Error("这不是 Mizu 备份文件");
+  }
+  if (raw.formatVersion !== BACKUP_FORMAT_VERSION) {
+    throw new Error(
+      Number(raw.formatVersion) > BACKUP_FORMAT_VERSION
+        ? "备份来自更新版本的 Mizu，请先更新扩展"
+        : "备份文件版本不受支持"
+    );
+  }
+
+  const rawState = raw.state;
+  if (!rawState ||
+      typeof rawState !== "object" ||
+      Array.isArray(rawState) ||
+      !Array.isArray(rawState.links) ||
+      !rawState.settings ||
+      typeof rawState.settings !== "object" ||
+      Array.isArray(rawState.settings)) {
+    throw new Error("备份中的收藏或设置数据不完整");
+  }
+
+  const state = normalizeState(rawState);
+  if (state.links.length !== rawState.links.length) {
+    throw new Error("备份中有无法识别的收藏数据");
+  }
+  if (rawState.settings.wallpaper?.type === "image" &&
+      state.settings.wallpaper.type !== "image") {
+    throw new Error("备份中的壁纸数据无效");
+  }
+
+  return {
+    exportedAt: Number.isFinite(Date.parse(raw.exportedAt))
+      ? new Date(raw.exportedAt).toISOString()
+      : "",
+    appVersion: String(raw.appVersion || "").slice(0, 32),
+    state
+  };
+}
+
+export function mergeStates(currentState, importedState) {
+  const current = normalizeState(currentState);
+  const imported = normalizeState(importedState);
+  const urls = new Set(current.links.map((link) => link.url));
+  const ids = new Set(current.links.map((link) => link.id));
+  const additions = [];
+
+  for (const link of imported.links) {
+    if (urls.has(link.url)) continue;
+    urls.add(link.url);
+
+    let id = link.id;
+    while (ids.has(id)) id = makeId();
+    ids.add(id);
+    additions.push({ ...link, id });
+  }
+
+  return normalizeState({
+    version: 1,
+    links: [
+      ...current.links.map((link) => ({ ...link })),
+      ...additions
+    ],
+    settings: {
+      ...imported.settings,
+      wallpaper: { ...imported.settings.wallpaper }
+    }
+  });
 }
 
 export function makeId() {
@@ -192,6 +282,8 @@ export function normalizeState(raw) {
   const rawIconSize = Number(rawSettings.iconSize);
   const rawIconGap = Number(rawSettings.iconGap);
   const rawColumns = Number(rawSettings.columns);
+  const rawOverlay = Number(rawSettings.overlay);
+  const rawBlur = Number(rawSettings.blur);
   const rawWallpaper = rawSettings.wallpaper && typeof rawSettings.wallpaper === "object"
     ? rawSettings.wallpaper
     : DEFAULT_SETTINGS.wallpaper;
@@ -199,12 +291,12 @@ export function normalizeState(raw) {
   let wallpaper = {
     type: "preset",
     value: "dawn",
-    tone: "dark"
+    tone: "light"
   };
 
   if (rawWallpaper.type === "image" &&
       typeof rawWallpaper.value === "string" &&
-      rawWallpaper.value.startsWith("data:image/")) {
+      WALLPAPER_DATA_URL_PATTERN.test(rawWallpaper.value)) {
     wallpaper = {
       type: "image",
       value: rawWallpaper.value,
@@ -212,10 +304,11 @@ export function normalizeState(raw) {
     };
   } else if (rawWallpaper.type === "preset" &&
              PRESETS.some((preset) => preset.id === rawWallpaper.value)) {
+    const preset = PRESETS.find((item) => item.id === rawWallpaper.value);
     wallpaper = {
       type: "preset",
       value: rawWallpaper.value,
-      tone: rawWallpaper.value === "paper" ? "light" : "dark"
+      tone: preset.tone
     };
   }
 
@@ -227,8 +320,12 @@ export function normalizeState(raw) {
         ? rawSettings.engine
         : DEFAULT_SETTINGS.engine,
       wallpaper,
-      overlay: clamp(Number(rawSettings.overlay ?? DEFAULT_SETTINGS.overlay), 0, 60),
-      blur: clamp(Number(rawSettings.blur ?? DEFAULT_SETTINGS.blur), 0, 24),
+      overlay: Number.isFinite(rawOverlay)
+        ? clamp(rawOverlay, 0, 60)
+        : DEFAULT_SETTINGS.overlay,
+      blur: Number.isFinite(rawBlur)
+        ? clamp(rawBlur, 0, 24)
+        : DEFAULT_SETTINGS.blur,
       showLabels: rawSettings.showLabels !== false,
       iconSize: Number.isFinite(rawIconSize)
         ? clamp(rawIconSize, 48, 88)

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Mizu · 简洁新标签页",
   "short_name": "Mizu",
-  "version": "0.2.15",
+  "version": "0.2.16",
   "description": "一张壁纸、一个搜索框，和你的常用网站。简洁、可自定义的新标签页。",
   "chrome_url_overrides": {
     "newtab": "newtab.html"
