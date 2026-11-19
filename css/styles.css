@@ -605,12 +605,81 @@ html.is-long-press-dragging * {
   display: grid;
 }
 
+.collection.is-editing .favorite-folder-icon ~ .remove-favorite {
+  display: none;
+}
+
 .collection.is-editing .favorite:hover .favorite-icon {
   transform: scale(1.015);
 }
 
 .favorite.is-dragging {
   opacity: .34;
+}
+
+.favorite.is-drop-target .favorite-icon {
+  border-color: rgba(255, 255, 255, .62);
+  box-shadow:
+    0 0 0 3px rgba(241, 215, 181, .36),
+    0 12px 28px rgba(7, 15, 15, .22);
+  transform: translateY(-2px) scale(1.03);
+}
+
+.favorite-folder-icon {
+  position: relative;
+  overflow: visible;
+  background: rgba(255, 255, 255, .08);
+}
+
+.favorite-folder-icon::after {
+  position: absolute;
+  z-index: 2;
+  right: 7px;
+  bottom: 5px;
+  width: 13px;
+  height: 13px;
+  border: 2px solid rgba(255, 255, 255, .82);
+  border-radius: 50%;
+  color: #fff;
+  background: rgba(35, 47, 46, .88);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .24);
+  content: "⋯";
+  font-size: 9px;
+  line-height: 10px;
+  text-align: center;
+}
+
+.folder-preview {
+  position: absolute;
+  overflow: hidden;
+  border: 2px solid rgba(255, 255, 255, .68);
+  border-radius: 18%;
+  background: var(--icon-tile);
+  box-shadow: 0 5px 12px rgba(7, 15, 15, .22);
+}
+
+.folder-preview img,
+.folder-preview .favorite-monogram {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.folder-preview img {
+  display: block;
+  object-fit: contain;
+}
+
+.folder-preview:first-child {
+  z-index: 1;
+  inset: 2px 24% 24% 2px;
+  transform: rotate(-6deg);
+}
+
+.folder-preview:last-child {
+  z-index: 0;
+  inset: 24% 2px 2px 24%;
+  transform: rotate(6deg);
 }
 
 .add-favorite {
@@ -1015,6 +1084,120 @@ html.is-long-press-dragging * {
 .secondary-button:hover {
   color: rgba(255, 255, 255, .92);
   background: rgba(255, 255, 255, .09);
+}
+
+.danger-button {
+  height: 36px;
+  margin-right: auto;
+  padding: 0 13px;
+  border: 1px solid rgba(255, 180, 168, .22);
+  border-radius: 10px;
+  color: rgba(255, 180, 168, .86);
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background .16s ease, color .16s ease, border-color .16s ease;
+}
+
+.danger-button:hover {
+  border-color: rgba(255, 180, 168, .42);
+  color: #ffd1c8;
+  background: rgba(255, 180, 168, .08);
+}
+
+.danger-button:active {
+  transform: scale(.98);
+}
+
+.folder-layer {
+  position: fixed;
+  z-index: 46;
+  inset: 0;
+  display: grid;
+  padding: 32px;
+  place-items: center;
+}
+
+.folder-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 9, 9, .08);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  opacity: 0;
+  transition: opacity .2s ease;
+}
+
+.folder-panel {
+  position: relative;
+  display: flex;
+  width: min(900px, 100%);
+  max-height: min(600px, 100%);
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, .16);
+  border-radius: 24px;
+  color: rgba(255, 255, 255, .95);
+  background: linear-gradient(152deg, rgba(33, 46, 44, .92), rgba(14, 23, 23, .95));
+  box-shadow:
+    0 34px 96px rgba(0, 0, 0, .38),
+    inset 0 1px 0 rgba(255, 255, 255, .12);
+  opacity: 0;
+  transform: translateY(10px) scale(.99);
+  transition: opacity .2s ease, transform .25s cubic-bezier(.2, .8, .25, 1);
+}
+
+.folder-layer.is-open .folder-backdrop {
+  opacity: 1;
+}
+
+.folder-layer.is-open .folder-panel {
+  opacity: 1;
+  transform: none;
+}
+
+.folder-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 20px 24px 12px;
+}
+
+.folder-heading h2 {
+  margin: 3px 0 0;
+  font-size: 20px;
+  font-weight: 560;
+  letter-spacing: -.02em;
+}
+
+.folder-count {
+  display: inline-block;
+  margin-top: 5px;
+  color: rgba(255, 255, 255, .45);
+  font-size: 10.5px;
+}
+
+.folder-hint {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0 24px 8px;
+  color: rgba(255, 255, 255, .38);
+  font-size: 10.5px;
+}
+
+.folder-grid {
+  flex: 1 1 auto;
+  align-content: start;
+  min-height: 180px;
+  padding: 16px 24px 30px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.folder-grid .favorite-name {
+  color: rgba(255, 255, 255, .86);
 }
 
 .sheet-layer {
@@ -2009,6 +2192,29 @@ html.is-long-press-dragging * {
 
   .history-layer {
     padding: 8px;
+  }
+
+  .folder-layer {
+    padding: 8px;
+  }
+
+  .folder-panel {
+    width: 100%;
+    height: calc(100svh - 16px);
+    max-height: none;
+    border-radius: 22px;
+  }
+
+  .folder-header {
+    padding: 19px 20px 11px;
+  }
+
+  .folder-hint {
+    padding-inline: 20px;
+  }
+
+  .folder-grid {
+    padding: 14px 18px 24px;
   }
 
   .history-panel {

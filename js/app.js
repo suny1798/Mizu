@@ -2,9 +2,11 @@ import {
   BACKUP_MAX_BYTES,
   DEFAULT_SETTINGS,
   ENGINES,
+  FOLDER_TITLE,
   PRESETS,
   STORAGE_KEY,
   clamp,
+  collectLinks,
   createBackup,
   createDefaultState,
   looksLikeAddress,
@@ -55,6 +57,20 @@ const dom = {
   collectionHint: document.querySelector("#collection-hint"),
   editButton: document.querySelector("#edit-button"),
   favoritesGrid: document.querySelector("#favorites-grid"),
+  folderLayer: document.querySelector("#folder-layer"),
+  folderBackdrop: document.querySelector("#folder-backdrop"),
+  folderPanel: document.querySelector("#folder-panel"),
+  folderTitle: document.querySelector("#folder-title"),
+  folderCount: document.querySelector("#folder-count"),
+  folderClose: document.querySelector("#folder-close"),
+  folderGrid: document.querySelector("#folder-grid"),
+  folderNameDialog: document.querySelector("#folder-name-dialog"),
+  folderNameForm: document.querySelector("#folder-name-form"),
+  folderNameInput: document.querySelector("#folder-name-input"),
+  folderNameError: document.querySelector("#folder-name-error"),
+  folderNameClose: document.querySelector("#folder-name-close"),
+  folderNameCancel: document.querySelector("#folder-name-cancel"),
+  folderDelete: document.querySelector("#folder-delete"),
   contextMenu: document.querySelector("#home-context-menu"),
   contextEditHome: document.querySelector("#context-edit-home"),
   contextEditSite: document.querySelector("#context-edit-site"),
@@ -120,6 +136,8 @@ let dialogLinkId = null;
 let dialogIconMode = "online";
 let iconTextComposing = false;
 let draggedId = null;
+let draggedParentId = null;
+let dropTargetId = null;
 let pointerDrag = null;
 let pointerPressTimer = 0;
 let suppressClickUntil = 0;
@@ -129,6 +147,9 @@ let historyIsOpen = false;
 let historyCloseTimer = 0;
 let historySearchTimer = 0;
 let historyRequest = 0;
+let openFolderId = null;
+let renamingFolderId = null;
+let folderCloseTimer = 0;
 let toastTimer = 0;
 let saveTimer = 0;
 let pendingBackup = null;
@@ -211,7 +232,11 @@ function applyLayout() {
     "--favorite-remove-left",
     `${Math.round(tileWidth / 2 + iconSize / 2 - 20)}px`
   );
-  const visibleCount = state.links.length + (editing ? 1 : 0);
+  const openFolder = findFolder(openFolderId);
+  const visibleItems = openFolder
+    ? openFolder.children
+    : state.links;
+  const visibleCount = visibleItems.length + (editing || !openFolder ? 1 : 0);
   const rowCount = Math.min(Math.max(visibleCount, 1), columns);
   const rowWidth = rowCount * tileWidth + Math.max(0, rowCount - 1) * gap;
   document.documentElement.style.setProperty(
@@ -387,19 +412,52 @@ function paintIcon(container, link) {
   });
 }
 
+function paintFolderPreview(container, folder) {
+  container.replaceChildren();
+  const children = folder.children.slice(0, 2);
+  while (children.length < 2) {
+    children.push({ id: `${folder.id}-placeholder-${children.length}`, title: "" });
+  }
+
+  for (const child of children) {
+    const preview = document.createElement("span");
+    preview.className = "folder-preview";
+    const monogram = monogramFor(child);
+    preview.append(monogram);
+    container.append(preview);
+
+    if (!child.iconMode && !child.icon) continue;
+    resolveIcon(child).then((icon) => {
+      if (!icon || !preview.isConnected) return;
+      const image = icon.image.cloneNode();
+      image.alt = "";
+      image.draggable = false;
+      image.referrerPolicy = "no-referrer";
+      preview.replaceChildren(image);
+    });
+  }
+}
+
 function createFavoriteElement(link, index) {
+  const isFolder = link.type === "folder";
   const tile = document.createElement("a");
   tile.className = "favorite";
-  tile.href = link.url;
+  if (!isFolder) tile.href = link.url;
   tile.target = "_blank";
   tile.rel = "noopener noreferrer";
   tile.dataset.id = link.id;
-  tile.title = `${link.title}\n${link.url}`;
+  tile.title = isFolder ? `${link.title}（${link.children.length} 个网站）` : `${link.title}\n${link.url}`;
+  if (isFolder) tile.setAttribute("aria-label", `文件夹：${link.title}`);
   tile.style.animationDelay = `${Math.min(index * 22, 180)}ms`;
 
   const icon = document.createElement("span");
   icon.className = "favorite-icon";
-  paintIcon(icon, link);
+  if (isFolder) {
+    icon.classList.add("favorite-folder-icon");
+    paintFolderPreview(icon, link);
+  } else {
+    paintIcon(icon, link);
+  }
 
   const name = document.createElement("span");
   name.className = "favorite-name";
@@ -414,13 +472,22 @@ function createFavoriteElement(link, index) {
       <path d="m3 3 6 6M9 3 3 9"></path>
     </svg>
   `;
-  remove.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    removeLink(link.id);
-  });
+  if (!isFolder) {
+    remove.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      removeLink(link.id);
+    });
+  }
 
   tile.addEventListener("click", (event) => {
+    if (isFolder) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (editing) openFolderNameDialog(link.id);
+      else openFolderView(link.id);
+      return;
+    }
     if (editing) {
       event.preventDefault();
       openLinkDialog("edit", link.id);
@@ -431,7 +498,7 @@ function createFavoriteElement(link, index) {
   });
 
   tile.addEventListener("auxclick", (event) => {
-    if (editing || event.button !== 1) return;
+    if (isFolder || editing || event.button !== 1) return;
     event.preventDefault();
     openInNewTab(link.url);
   });
@@ -450,10 +517,11 @@ function createFavoriteElement(link, index) {
   });
 
   tile.addEventListener("keydown", (event) => {
-    if (!editing) return;
+    if (!editing || !openFolderId) return;
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      openLinkDialog("edit", link.id);
+      if (isFolder) openFolderNameDialog(link.id);
+      else openLinkDialog("edit", link.id);
       return;
     }
     if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && event.altKey) {
@@ -462,11 +530,12 @@ function createFavoriteElement(link, index) {
     }
   });
 
-  tile.draggable = editing;
+  tile.draggable = editing || Boolean(openFolderId);
   tile.addEventListener("dragstart", handleDragStart);
   tile.addEventListener("dragend", handleDragEnd);
 
-  tile.append(icon, name, remove);
+  tile.append(icon, name);
+  if (!isFolder) tile.append(remove);
   return tile;
 }
 
@@ -489,15 +558,17 @@ function createAddElement() {
 
 function renderFavorites() {
   const fragment = document.createDocumentFragment();
-  state.links.forEach((link, index) => {
+  const openFolder = findFolder(openFolderId);
+  const items = openFolder ? openFolder.children : state.links;
+  items.forEach((link, index) => {
     fragment.append(createFavoriteElement(link, index));
   });
 
-  if (editing || state.links.length === 0) {
+  if ((editing && !openFolder) || items.length === 0) {
     fragment.append(createAddElement());
   }
 
-  dom.favoritesGrid.replaceChildren(fragment);
+  (openFolder ? dom.folderGrid : dom.favoritesGrid).replaceChildren(fragment);
   applyLayout();
 }
 
@@ -505,7 +576,7 @@ function setEditing(nextValue) {
   editing = Boolean(nextValue);
   dom.collection.classList.toggle("is-editing", editing);
   dom.collectionHint.textContent = editing
-    ? "拖动排序 · alt + ← / → 移动 · 点击图标编辑"
+    ? "拖动排序或合并 · alt + ← / → 移动 · 点击图标编辑"
     : "";
   dom.editButton.textContent = editing ? "完成" : "编辑";
   dom.editButton.setAttribute("aria-pressed", editing ? "true" : "false");
@@ -553,12 +624,13 @@ function openHomeContextMenu(event, link) {
 }
 
 function moveLinkBy(id, delta) {
-  const from = state.links.findIndex((link) => link.id === id);
-  const to = clamp(from + delta, 0, state.links.length - 1);
+  const items = getActiveItems();
+  const from = items.findIndex((link) => link.id === id);
+  const to = clamp(from + delta, 0, items.length - 1);
   if (from < 0 || from === to) return;
 
-  const [link] = state.links.splice(from, 1);
-  state.links.splice(to, 0, link);
+  const [link] = items.splice(from, 1);
+  items.splice(to, 0, link);
   saveNow();
   renderFavorites();
 
@@ -566,47 +638,282 @@ function moveLinkBy(id, delta) {
   nextTile?.focus();
 }
 
+function getActiveItems() {
+  return findFolder(openFolderId)?.children ?? state.links;
+}
+
+function findFolder(id) {
+  if (!id) return null;
+  return state.links.find((item) => item.type === "folder" && item.id === id) ?? null;
+}
+
+function findItem(id) {
+  return state.links.find((item) => item.id === id) ??
+    state.links.flatMap((item) => item.children ?? []).find((item) => item.id === id) ??
+    null;
+}
+
+function normalizeFolders() {
+  state.links = state.links.flatMap((item) => {
+    if (item.type !== "folder") return [item];
+    if (item.children.length > 1) return [item];
+    return item.children;
+  });
+}
+
+function openFolderView(id) {
+  const folder = findFolder(id);
+  if (!folder) return;
+  window.clearTimeout(folderCloseTimer);
+  openFolderId = id;
+  dom.folderTitle.textContent = folder.title;
+  dom.folderCount.textContent = `${folder.children.length} 个网站`;
+  dom.folderLayer.hidden = false;
+  dom.folderLayer.classList.add("is-open");
+  closeHomeContextMenu();
+  renderFavorites();
+  window.setTimeout(() => dom.folderClose.focus({ preventScroll: true }), 50);
+}
+
+function closeFolderView({ focusTrigger = false } = {}) {
+  const trigger = focusTrigger
+    ? dom.favoritesGrid.querySelector(`[data-id="${CSS.escape(openFolderId ?? "")}"]`)
+    : null;
+  openFolderId = null;
+  dom.folderLayer.classList.remove("is-open");
+  window.clearTimeout(folderCloseTimer);
+  folderCloseTimer = window.setTimeout(() => {
+    if (!openFolderId) dom.folderLayer.hidden = true;
+  }, 200);
+  renderFavorites();
+  trigger?.focus({ preventScroll: true });
+}
+
+function openFolderNameDialog(id) {
+  const folder = findFolder(id);
+  if (!folder) return;
+  renamingFolderId = id;
+  dom.folderNameInput.value = folder.title;
+  dom.folderNameError.hidden = true;
+  dom.folderDelete.hidden = false;
+  dom.folderNameDialog.showModal();
+  window.setTimeout(() => dom.folderNameInput.select(), 50);
+}
+
+function closeFolderNameDialog() {
+  if (dom.folderNameDialog.open) dom.folderNameDialog.close();
+}
+
+function finishFolderNameDialog(event) {
+  event.preventDefault();
+  const folder = findFolder(renamingFolderId);
+  if (!folder) {
+    closeFolderNameDialog();
+    return;
+  }
+  const title = dom.folderNameInput.value.trim();
+  if (!title) {
+    dom.folderNameError.textContent = "请填写文件夹名称";
+    dom.folderNameError.hidden = false;
+    dom.folderNameInput.focus();
+    return;
+  }
+  folder.title = title.slice(0, 36);
+  saveNow();
+  closeFolderNameDialog();
+  renderFavorites();
+}
+
+function deleteFolder() {
+  const deletedId = renamingFolderId;
+  const index = state.links.findIndex((item) =>
+    item.type === "folder" && item.id === deletedId
+  );
+  if (index >= 0) {
+    const [folder] = state.links.splice(index, 1);
+    state.links.splice(index, 0, ...folder.children);
+  }
+  closeFolderNameDialog();
+  saveNow();
+  if (openFolderId === deletedId) closeFolderView();
+  renderFavorites();
+  showToast("已删除文件夹，网站已移回首页");
+}
+
 function handleDragStart(event) {
-  if (!editing) {
+  if (!editing && !openFolderId) {
     event.preventDefault();
     return;
   }
   const tile = event.currentTarget;
-  draggedId = tile.dataset.id;
+  const targetItem = findItem(tile.dataset.id);
+  draggedId = targetItem?.type === "folder" && !openFolderId
+    ? null
+    : tile.dataset.id;
+  draggedParentId = openFolderId ?? null;
   tile.classList.add("is-dragging");
   event.dataTransfer.effectAllowed = "move";
-  event.dataTransfer.setData("text/plain", draggedId);
+  event.dataTransfer.setData("text/plain", tile.dataset.id);
 }
 
 function handleDragEnd() {
   if (!draggedId) return;
-  const tiles = [...dom.favoritesGrid.querySelectorAll(".favorite[data-id]")];
+  const items = getActiveItems();
+  const tiles = [...getActiveGrid().querySelectorAll(".favorite[data-id]")];
   const order = new Map(tiles.map((tile, index) => [tile.dataset.id, index]));
-  state.links.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
-  state.links.forEach((link) => {
-    dom.favoritesGrid.querySelector(`[data-id="${CSS.escape(link.id)}"]`)?.classList.remove("is-dragging");
-  });
-  draggedId = null;
-  saveNow();
-  renderFavorites();
+  items.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+  commitDrag();
 }
 
 function handleDragOver(event) {
   if (!draggedId) return;
   event.preventDefault();
   event.dataTransfer.dropEffect = "move";
+  updateDropTarget(event.target);
+  if (getActiveGrid() === dom.favoritesGrid && dropTargetId) {
+    const dragging = dom.favoritesGrid.querySelector(".favorite.is-dragging");
+    const target = dom.favoritesGrid.querySelector(`[data-id="${CSS.escape(dropTargetId)}"]`);
+    if (dragging && target && dragging !== target) {
+      const rect = target.getBoundingClientRect();
+      dom.favoritesGrid.insertBefore(
+        dragging,
+        event.clientX < rect.left + rect.width / 2 ? target : target.nextSibling
+      );
+      return;
+    }
+  }
+}
 
-  const target = event.target.closest?.(".favorite[data-id]");
-  if (!target || target.dataset.id === draggedId) return;
-  const dragging = dom.favoritesGrid.querySelector(".favorite.is-dragging");
-  if (!dragging) return;
+function getActiveGrid() {
+  return openFolderId ? dom.folderGrid : dom.favoritesGrid;
+}
 
-  const rect = target.getBoundingClientRect();
-  const insertBefore = event.clientX < rect.left + rect.width / 2;
-  dom.favoritesGrid.insertBefore(
-    dragging,
-    insertBefore ? target : target.nextSibling
-  );
+function setDropTarget(id) {
+  if (id === draggedId) id = null;
+  if (dropTargetId === id) return;
+  document.querySelectorAll(".favorite.is-drop-target")
+    .forEach((tile) => tile.classList.remove("is-drop-target"));
+  dropTargetId = id;
+  if (!id) return;
+  getActiveGrid()
+    .querySelector(`[data-id="${CSS.escape(id)}"]`)
+    ?.classList.add("is-drop-target");
+}
+
+function clearDropTarget() {
+  document.querySelectorAll(".favorite.is-drop-target")
+    .forEach((tile) => tile.classList.remove("is-drop-target"));
+  dropTargetId = null;
+}
+
+function updateDropTarget(element) {
+  const target = element?.closest?.(".favorite[data-id]");
+  if (!target || target.dataset.id === draggedId ||
+      !getActiveGrid().contains(target)) {
+    setDropTarget(null);
+    return;
+  }
+
+  const targetItem = findItem(target.dataset.id);
+  if (openFolderId && !targetItem?.children &&
+      draggedParentId !== openFolderId) {
+    setDropTarget(target.dataset.id);
+    return;
+  }
+  if (openFolderId && !targetItem?.children && draggedParentId === openFolderId) {
+    setDropTarget(null);
+    return;
+  }
+  setDropTarget(target.dataset.id);
+}
+
+function commitDrag() {
+  const dragged = findItem(draggedId);
+  const target = dropTargetId ? findItem(dropTargetId) : null;
+  const targetId = dropTargetId;
+  const wasInFolder = Boolean(openFolderId);
+  const draggedParent = draggedParentId;
+  draggedId = null;
+  draggedParentId = null;
+  clearDropTarget();
+
+  if (dragged && !openFolderId && target &&
+      dragged.id !== target.id && !dragged.children) {
+    if (target.title === FOLDER_TITLE && target.type !== "folder") {
+      normalizeFolders();
+      saveNow();
+      renderFavorites();
+      return;
+    }
+    if (target.type === "folder") {
+      target.children.push(dragged);
+      removeTopLevelItem(dragged.id);
+      saveNow();
+      renderFavorites();
+    } else {
+      mergeIntoFolder(dragged, target);
+    }
+    return;
+  }
+
+  if (dragged && wasInFolder && draggedParent && !targetId) {
+    moveDraggedToTopLevel(dragged, draggedParent);
+    return;
+  }
+
+  normalizeFolders();
+  if (wasInFolder && !findFolder(openFolderId)) closeFolderView();
+  saveNow();
+  renderFavorites();
+}
+
+function moveDraggedToTopLevel(dragged, sourceFolderId) {
+  const sourceFolder = findFolder(sourceFolderId);
+  if (!sourceFolder) return;
+  const index = sourceFolder.children.findIndex((item) => item.id === dragged.id);
+  if (index < 0) return;
+  const [item] = sourceFolder.children.splice(index, 1);
+  const targetItem = dropTargetId ? findItem(dropTargetId) : null;
+  const targetIndex = targetItem
+    ? state.links.findIndex((entry) => entry.id === targetItem.id)
+    : -1;
+
+  if (targetItem && targetIndex >= 0) {
+    state.links.splice(targetIndex, 0, item);
+  } else {
+    const sourceIndex = state.links.findIndex((entry) => entry.id === sourceFolder.id);
+    state.links.splice(sourceIndex + 1, 0, item);
+  }
+
+  normalizeFolders();
+  if (!findFolder(openFolderId)) closeFolderView();
+  saveNow();
+  renderFavorites();
+}
+
+function removeTopLevelItem(id) {
+  const index = state.links.findIndex((item) => item.id === id);
+  if (index >= 0) state.links.splice(index, 1);
+}
+
+function mergeIntoFolder(dragged, target) {
+  const targetIndex = state.links.findIndex((item) => item.id === target.id);
+  if (targetIndex < 0) return;
+  const draggedIndex = state.links.findIndex((item) => item.id === dragged.id);
+  if (draggedIndex < 0) return;
+  const [moving] = state.links.splice(draggedIndex, 1);
+
+  const firstIndex = targetIndex > draggedIndex ? targetIndex - 1 : targetIndex;
+  state.links.splice(firstIndex, 1, {
+    id: makeId(),
+    type: "folder",
+    title: FOLDER_TITLE,
+    children: [target, moving]
+  });
+
+  normalizeFolders();
+  saveNow();
+  renderFavorites();
 }
 
 function clearPointerPressTimer() {
@@ -619,8 +926,34 @@ function cancelPendingLongPress() {
   if (pointerDrag && !pointerDrag.active) pointerDrag = null;
 }
 
+function cancelPointerDrag() {
+  const drag = pointerDrag;
+  if (!drag) return;
+  clearPointerPressTimer();
+  pointerDrag = null;
+  if (!drag.active) return;
+  try {
+    drag.tile.releasePointerCapture(drag.pointerId);
+  } catch {
+    // Capture may already be gone.
+  }
+  drag.ghost?.remove();
+  drag.tile.classList.remove("is-pointer-dragging");
+  drag.tile.removeAttribute("aria-grabbed");
+  document.documentElement.classList.remove("is-long-press-dragging");
+  clearDropTarget();
+  suppressClickUntil = performance.now() + 300;
+  renderFavorites();
+}
+
+function restorePointerPosition(drag, x, y) {
+  const rect = drag.tile.getBoundingClientRect();
+  drag.offsetX = Math.min(Math.max(x - rect.left, 0), rect.width);
+  drag.offsetY = Math.min(Math.max(y - rect.top, 0), rect.height);
+}
+
 function beginLongPress(event, link, tile) {
-  if (editing ||
+  if ((editing && !openFolderId) ||
       pointerDrag ||
       event.button !== 0 ||
       event.isPrimary === false ||
@@ -630,6 +963,7 @@ function beginLongPress(event, link, tile) {
 
   pointerDrag = {
     id: link.id,
+    parentId: openFolderId ?? null,
     tile,
     pointerId: event.pointerId,
     startX: event.clientX,
@@ -649,7 +983,7 @@ function beginLongPress(event, link, tile) {
 function activatePointerDrag() {
   pointerPressTimer = 0;
   const drag = pointerDrag;
-  if (!drag || drag.active || editing || !drag.tile.isConnected) {
+  if (!drag || drag.active || (editing && !openFolderId) || !drag.tile.isConnected) {
     cancelPendingLongPress();
     return;
   }
@@ -672,6 +1006,9 @@ function activatePointerDrag() {
   drag.offsetY = drag.startY - rect.top;
   drag.ghost = ghost;
   drag.active = true;
+  restorePointerPosition(drag, drag.lastX ?? drag.startX, drag.lastY ?? drag.startY);
+  drag.ghost.style.left = `${drag.lastX ?? drag.startX}px`;
+  drag.ghost.style.top = `${drag.lastY ?? drag.startY}px`;
   drag.tile.classList.add("is-pointer-dragging");
   drag.tile.setAttribute("aria-grabbed", "true");
   document.body.append(ghost);
@@ -684,26 +1021,11 @@ function activatePointerDrag() {
   }
 }
 
-function reorderFromPointer(drag, x, y) {
-  const target = document.elementFromPoint(x, y)
-    ?.closest?.(".favorite[data-id]");
-  if (!target ||
-      target === drag.tile ||
-      !dom.favoritesGrid.contains(target)) {
-    return;
-  }
-
-  const rect = target.getBoundingClientRect();
-  const insertBefore = x < rect.left + rect.width / 2;
-  dom.favoritesGrid.insertBefore(
-    drag.tile,
-    insertBefore ? target : target.nextSibling
-  );
-}
-
 function handlePointerDragMove(event) {
   const drag = pointerDrag;
   if (!drag || event.pointerId !== drag.pointerId) return;
+  drag.lastX = event.clientX;
+  drag.lastY = event.clientY;
 
   if (!drag.active) {
     const distance = Math.hypot(
@@ -717,12 +1039,14 @@ function handlePointerDragMove(event) {
   if (event.cancelable) event.preventDefault();
   drag.ghost.style.left = `${event.clientX - drag.offsetX}px`;
   drag.ghost.style.top = `${event.clientY - drag.offsetY}px`;
-  reorderFromPointer(drag, event.clientX, event.clientY);
+  updateDropTarget(drag.ghost);
 }
 
 function finishPointerDrag(event) {
   const drag = pointerDrag;
   if (!drag || event.pointerId !== drag.pointerId) return;
+  drag.lastX = event.clientX;
+  drag.lastY = event.clientY;
 
   clearPointerPressTimer();
   pointerDrag = null;
@@ -739,13 +1063,16 @@ function finishPointerDrag(event) {
   document.documentElement.classList.remove("is-long-press-dragging");
   suppressClickUntil = performance.now() + 300;
 
-  const tiles = [...dom.favoritesGrid.querySelectorAll(".favorite[data-id]")];
+  draggedId = drag.id;
+  draggedParentId = drag.parentId;
+  const tiles = [...getActiveGrid().querySelectorAll(".favorite[data-id]")];
   const order = new Map(tiles.map((tile, index) => [tile.dataset.id, index]));
-  state.links.sort((left, right) =>
+  const items = getActiveItems();
+  items.sort((left, right) =>
     (order.get(left.id) ?? 0) - (order.get(right.id) ?? 0)
   );
-  saveNow();
-  renderFavorites();
+  updateDropTarget(document.elementFromPoint(event.clientX, event.clientY));
+  commitDrag();
 }
 
 function removeLink(id) {
@@ -1216,9 +1543,9 @@ function currentImportMode() {
 }
 
 function newLinksInBackup(backupState) {
-  const urls = new Set(state.links.map((link) => link.url));
+  const urls = new Set(collectLinks(state.links).map((link) => link.url));
   let count = 0;
-  for (const link of backupState.links) {
+  for (const link of collectLinks(backupState.links)) {
     if (urls.has(link.url)) continue;
     urls.add(link.url);
     count += 1;
@@ -1227,9 +1554,9 @@ function newLinksInBackup(backupState) {
 }
 
 function duplicateLinksInBackup(backupState) {
-  const urls = new Set(state.links.map((link) => link.url));
+  const urls = new Set(collectLinks(state.links).map((link) => link.url));
   const duplicates = new Set();
-  for (const link of backupState.links) {
+  for (const link of collectLinks(backupState.links)) {
     if (urls.has(link.url)) duplicates.add(link.url);
   }
   return duplicates.size;
@@ -1238,19 +1565,19 @@ function duplicateLinksInBackup(backupState) {
 function updateImportDialogCopy() {
   if (!pendingBackup) return;
   const mode = currentImportMode();
-  const incomingCount = pendingBackup.state.links.length;
+  const incomingCount = collectLinks(pendingBackup.state.links).length;
   const newCount = newLinksInBackup(pendingBackup.state);
   const duplicateCount = duplicateLinksInBackup(pendingBackup.state);
 
   if (mode === "merge") {
     dom.importStat.textContent =
-      `保留当前 ${state.links.length} 个收藏，新增 ${newCount} 个；` +
+      `保留当前 ${collectLinks(state.links).length} 个收藏，新增 ${newCount} 个；` +
       `${duplicateCount ? `${duplicateCount} 个重复网址保留本机版本。` : "没有重复网址。"}` +
       `壁纸和全部设置采用备份。`;
     dom.importConfirm.textContent = "合并并导入";
   } else {
     dom.importStat.textContent =
-      `备份中有 ${incomingCount} 个收藏，将替换当前 ${state.links.length} 个收藏，` +
+      `备份中有 ${incomingCount} 个收藏，将替换当前 ${collectLinks(state.links).length} 个收藏，` +
       `并应用${backupWallpaperLabel(pendingBackup.state)}和全部设置。`;
     dom.importConfirm.textContent = "替换并导入";
   }
@@ -1334,7 +1661,7 @@ async function handleImportSubmit(event) {
 
   const importedCount = mode === "merge"
     ? newLinksInBackup(backup.state)
-    : backup.state.links.length;
+    : collectLinks(backup.state.links).length;
   state = nextState;
   applyUiState();
   renderFavorites();
@@ -1778,6 +2105,11 @@ function handleGlobalKeydown(event) {
     (active.matches("input, select, textarea") || active.isContentEditable);
 
   if (event.key === "Escape") {
+    if (pointerDrag?.active) {
+      event.preventDefault();
+      cancelPointerDrag();
+      return;
+    }
     if (dom.importDialog.open) {
       event.preventDefault();
       if (!importIsSaving) closeImportDialog();
@@ -1789,6 +2121,10 @@ function handleGlobalKeydown(event) {
     }
     if (dom.linkDialog.open) {
       closeLinkDialog();
+      return;
+    }
+    if (openFolderId) {
+      closeFolderView({ focusTrigger: true });
       return;
     }
     if (historyIsOpen) {
@@ -1813,7 +2149,7 @@ function handleGlobalKeydown(event) {
     return;
   }
 
-  if (historyIsOpen) return;
+  if (historyIsOpen || openFolderId) return;
 
   if (event.key === "/" && !isTyping && !event.metaKey && !event.ctrlKey && !event.altKey) {
     event.preventDefault();
@@ -1852,6 +2188,15 @@ function bindEvents() {
   dom.settingsBackdrop.addEventListener("click", closeSettings);
   dom.settingsSheet.addEventListener("keydown", trapSettingsFocus);
   dom.editButton.addEventListener("click", () => setEditing(!editing));
+  dom.folderClose.addEventListener("click", () => closeFolderView({ focusTrigger: true }));
+  dom.folderBackdrop.addEventListener("click", () => closeFolderView({ focusTrigger: true }));
+  dom.folderNameForm.addEventListener("submit", finishFolderNameDialog);
+  dom.folderNameClose.addEventListener("click", closeFolderNameDialog);
+  dom.folderNameCancel.addEventListener("click", closeFolderNameDialog);
+  dom.folderDelete.addEventListener("click", deleteFolder);
+  dom.folderNameDialog.addEventListener("close", () => {
+    renamingFolderId = null;
+  });
   dom.contextEditHome.addEventListener("click", () => {
     closeHomeContextMenu();
     setEditing(true);
@@ -1885,7 +2230,7 @@ function bindEvents() {
   document.addEventListener("click", (event) => {
     if (!editing) return;
     const interactiveArea = event.target.closest?.(
-      ".favorite, .add-favorite, .remove-favorite, .collection-header, .topbar, .context-menu, .glass-dialog, .sheet-layer, .history-layer, .toast"
+      ".favorite, .add-favorite, .remove-favorite, .collection-header, .topbar, .context-menu, .glass-dialog, .sheet-layer, .history-layer, .folder-layer, .toast"
     );
     if (!interactiveArea) setEditing(false);
   });
@@ -1896,6 +2241,34 @@ function bindEvents() {
   dom.favoritesGrid.addEventListener("drop", (event) => {
     event.preventDefault();
     if (draggedId) handleDragEnd();
+  });
+  dom.folderGrid.addEventListener("dragover", handleDragOver);
+  dom.folderGrid.addEventListener("drop", (event) => {
+    event.preventDefault();
+    if (draggedId) handleDragEnd();
+  });
+  dom.folderLayer.addEventListener("dragover", (event) => {
+    if (!draggedId) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDropTarget(null);
+  });
+  dom.folderLayer.addEventListener("drop", (event) => {
+    event.preventDefault();
+    if (draggedId) handleDragEnd();
+  });
+  document.addEventListener("dragover", (event) => {
+    if (!draggedId || !openFolderId) return;
+    if (event.target.closest?.(".folder-grid")) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDropTarget(null);
+  });
+  document.addEventListener("drop", (event) => {
+    if (!draggedId || !openFolderId) return;
+    if (event.target.closest?.(".folder-grid")) return;
+    event.preventDefault();
+    handleDragEnd();
   });
 
   dom.linkForm.addEventListener("submit", finishLinkDialog);
@@ -2026,6 +2399,7 @@ function bindEvents() {
 function applySyncedState(nextState) {
   if (JSON.stringify(nextState) === JSON.stringify(state)) return;
   state = nextState;
+  if (openFolderId && !findFolder(openFolderId)) closeFolderView();
   applyUiState();
   renderFavorites();
 }

@@ -2,6 +2,7 @@ export const STORAGE_KEY = ["mizu", "start", "state", "v1"].join(".");
 export const BACKUP_FORMAT = "mizu-backup";
 export const BACKUP_FORMAT_VERSION = 1;
 export const BACKUP_MAX_BYTES = 16 * 1024 * 1024;
+export const FOLDER_TITLE = "文件夹";
 
 const WALLPAPER_DATA_URL_PATTERN =
   /^data:image\/(?:png|jpe?g|webp|gif|avif);base64,[a-z0-9+/=]+$/i;
@@ -107,6 +108,14 @@ export function createBackup(state, appVersion) {
   };
 }
 
+export function collectLinks(items) {
+  return items.flatMap((item) =>
+    item.type === "folder" && Array.isArray(item.children)
+      ? item.children
+      : [item]
+  );
+}
+
 export function parseBackup(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     throw new Error("备份文件内容无效");
@@ -134,7 +143,7 @@ export function parseBackup(raw) {
   }
 
   const state = normalizeState(rawState);
-  if (state.links.length !== rawState.links.length) {
+  if (countNormalizedItems(rawState.links) !== countNormalizedItems(state.links)) {
     throw new Error("备份中有无法识别的收藏数据");
   }
   if (rawState.settings.wallpaper?.type === "image" &&
@@ -154,18 +163,18 @@ export function parseBackup(raw) {
 export function mergeStates(currentState, importedState) {
   const current = normalizeState(currentState);
   const imported = normalizeState(importedState);
-  const urls = new Set(current.links.map((link) => link.url));
-  const ids = new Set(current.links.map((link) => link.id));
+  const urls = new Set(collectLinks(current.links).map((link) => link.url));
+  const ids = new Set(collectTopLevelIds(current.links));
   const additions = [];
 
-  for (const link of imported.links) {
+  for (const link of collectLinks(imported.links)) {
     if (urls.has(link.url)) continue;
     urls.add(link.url);
 
     let id = link.id;
     while (ids.has(id)) id = makeId();
     ids.add(id);
-    additions.push({ ...link, id });
+    additions.push({ ...link, id, ...(link.type === "folder" ? { type: undefined } : {}) });
   }
 
   return normalizeState({
@@ -179,6 +188,25 @@ export function mergeStates(currentState, importedState) {
       wallpaper: { ...imported.settings.wallpaper }
     }
   });
+}
+
+function countNormalizedItems(items) {
+  return items.reduce((count, item) => {
+    if (!item || typeof item !== "object") return count;
+    if (item.type === "folder") {
+      return count + (Array.isArray(item.children) ? item.children.length : 0);
+    }
+    return count + 1;
+  }, 0);
+}
+
+function collectTopLevelIds(items) {
+  const ids = new Set();
+  for (const item of items) {
+    ids.add(item.id);
+    for (const child of item.children ?? []) ids.add(child.id);
+  }
+  return ids;
 }
 
 export function makeId() {
@@ -268,13 +296,55 @@ function normalizeLink(link) {
   };
 }
 
+function normalizeFolder(folder, usedIds) {
+  if (!folder || typeof folder !== "object" || folder.type !== "folder") {
+    return null;
+  }
+  const children = Array.isArray(folder.children)
+    ? folder.children.map((child) => normalizeLink(child)).filter(Boolean)
+    : [];
+  if (children.length < 2) {
+    if (children.length === 1 && !usedIds.has(children[0].id)) {
+      usedIds.add(children[0].id);
+      return children[0];
+    }
+    return null;
+  }
+
+  let id = String(folder.id || makeId());
+  while (usedIds.has(id)) id = makeId();
+  usedIds.add(id);
+  const title = String(folder.title || "").trim().slice(0, 36) || FOLDER_TITLE;
+
+  return {
+    id,
+    type: "folder",
+    title,
+    children
+  };
+}
+
 export function normalizeState(raw) {
   const fallback = createDefaultState();
   if (!raw || typeof raw !== "object") return fallback;
 
-  const links = Array.isArray(raw.links)
-    ? raw.links.map(normalizeLink).filter(Boolean)
-    : fallback.links;
+  let links;
+  if (Array.isArray(raw.links)) {
+    const usedIds = new Set();
+    links = raw.links.flatMap((item) => {
+      if (item?.type === "folder") {
+        const folder = normalizeFolder(item, usedIds);
+        return folder ? [folder] : [];
+      }
+      const link = normalizeLink(item);
+      if (!link) return [];
+      while (usedIds.has(link.id)) link.id = makeId();
+      usedIds.add(link.id);
+      return [link];
+    });
+  } else {
+    links = fallback.links;
+  }
 
   const rawSettings = raw.settings && typeof raw.settings === "object"
     ? raw.settings
